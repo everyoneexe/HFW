@@ -98,6 +98,13 @@ data class StateData(
         return globalAllowed && shouldHide(pkg, userId, isModule)
     }
 
+    /** Evaluates [shouldHideScope] and invokes [isModule] only when the outcome depends on it. */
+    fun shouldHideScope(pkg: String, userId: Int, scope: Int, isModule: () -> Boolean): Boolean {
+        if (shouldHideScope(pkg, userId, false, scope)) return true
+        if (!shouldHideScope(pkg, userId, true, scope)) return false
+        return isModule()
+    }
+
     /** Packages hidden from the launcher for [userId], given the modules detected so far. */
     fun hiddenFor(userId: Int, detectedModules: Set<String>): List<String> {
         val out = LinkedHashSet<String>()

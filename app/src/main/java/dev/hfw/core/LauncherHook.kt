@@ -539,11 +539,12 @@ object LauncherHook {
                     val rawUserId = (args.getOrNull(notifIdx + 1) as? Int) ?: -1
                     val callingUid = (args.getOrNull(2) as? Int) ?: -1
                     val userId = if (rawUserId >= 0) rawUserId else if (callingUid >= 0) callingUid / 100_000 else 0
-                    val ctx = Runtime.contextOf(param.thisObject)
-                    val be = Runtime.be()
-                    val profile = try { userHandleOf?.invoke(null, userId) as? UserHandle } catch (_: Throwable) { null }
-                    val mod = ModuleCache.isXposedModule(pkg, null, ctx, profile, be)
-                    if (snap.shouldHideScope(pkg, userId, mod, HideScope.NOTIFICATIONS)) {
+                    if (snap.shouldHideScope(pkg, userId, HideScope.NOTIFICATIONS) {
+                            val ctx = Runtime.contextOf(param.thisObject)
+                            val be = Runtime.be()
+                            val profile = try { userHandleOf?.invoke(null, userId) as? UserHandle } catch (_: Throwable) { null }
+                            ModuleCache.isXposedModule(pkg, null, ctx, profile, be)
+                        }) {
                         param.setResult(null)
                     }
                 } catch (t: Throwable) {
@@ -557,32 +558,36 @@ object LauncherHook {
 
         // Foreground-service notifications cannot be dropped in enqueueNotificationInternal without risking
         // ForegroundServiceDidNotStartInTimeException on Android 12+; hide them at the listener dispatch layer instead.
-        val nl = h.be.findClassIfExists("com.android.server.notification.NotificationManagerService\$NotificationListeners", classLoader)
-        if (nl != null) {
-            fun shouldHideSbn(sbn: android.service.notification.StatusBarNotification, ctx: android.content.Context?): Boolean {
-                val snap = StateStore.snapshot
-                if (!snap.mayHideAnything()) return false
-                val pkg = sbn.packageName ?: return false
-                if (pkg == "android" || pkg == Identity.PACKAGE) return false
-                val be = Runtime.be()
-                val profile = sbn.user
-                val userId = userIdOf(profile, be)
-                val mod = ModuleCache.isXposedModule(pkg, null, ctx, profile, be)
-                return snap.shouldHideScope(pkg, userId, mod, HideScope.NOTIFICATIONS)
+        fun shouldHideSbn(sbn: android.service.notification.StatusBarNotification, ctx: android.content.Context?): Boolean {
+            val snap = StateStore.snapshot
+            if (!snap.mayHideAnything()) return false
+            val pkg = sbn.packageName ?: return false
+            if (pkg == "android" || pkg == Identity.PACKAGE) return false
+            val be = Runtime.be()
+            val profile = sbn.user
+            val userId = userIdOf(profile, be)
+            return snap.shouldHideScope(pkg, userId, HideScope.NOTIFICATIONS) {
+                ModuleCache.isXposedModule(pkg, null, ctx, profile, be)
             }
-            val visCb = object : HookCallback() {
-                override fun before(param: HookParam) {
-                    try {
-                        val sbn = param.args.firstOrNull { it is android.service.notification.StatusBarNotification }
-                            as? android.service.notification.StatusBarNotification ?: return
-                        if (shouldHideSbn(sbn, Runtime.contextOf(param.thisObject))) {
-                            param.setResult(false)
-                        }
-                    } catch (t: Throwable) {
-                        HealthLog.event("NotificationListeners.isVisibleToListener failed", t)
+        }
+        val visCb = object : HookCallback() {
+            override fun before(param: HookParam) {
+                try {
+                    val sbn = param.args.firstOrNull { it is android.service.notification.StatusBarNotification }
+                        as? android.service.notification.StatusBarNotification ?: return
+                    if (shouldHideSbn(sbn, Runtime.contextOf(param.thisObject))) {
+                        param.setResult(false)
                     }
+                } catch (t: Throwable) {
+                    HealthLog.event("NotificationManagerService.isVisibleToListener failed", t)
                 }
             }
+        }
+        for (m in nms.declaredMethods.filter { it.name == "isVisibleToListener" }) {
+            h.optional("NotificationManagerService.isVisibleToListener", nms, m.name, *m.parameterTypes, cb = visCb)
+        }
+        val nl = h.be.findClassIfExists("com.android.server.notification.NotificationManagerService\$NotificationListeners", classLoader)
+        if (nl != null) {
             for (m in nl.declaredMethods.filter { it.name == "isVisibleToListener" }) {
                 h.optional("NotificationListeners.isVisibleToListener", nl, m.name, *m.parameterTypes, cb = visCb)
             }

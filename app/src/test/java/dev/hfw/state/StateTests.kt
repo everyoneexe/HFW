@@ -261,5 +261,28 @@ class StateTests {
         assertEquals(Canonical.hash(enabled), Canonical.hash(decodedState))
     }
 
+    @Test
+    fun lazyShouldHideScopeSkipsModuleCheckUnlessNeeded() {
+        var calls = 0
+        val failIfCalled: () -> Boolean = { calls++; error("isModule should not be called") }
+
+        // Global hideNotifications=false: skips module lookup for unrelated packages
+        val defaultState = reduce(StateData(), Op.Hide(0, "com.example.hidden", true))
+        assertFalse(defaultState.shouldHideScope("com.example.other", 0, HideScope.NOTIFICATIONS, failIfCalled))
+        assertEquals(0, calls)
+
+        // Explicit HideScope skips module lookup
+        val scoped = reduce(defaultState, Op.HideScope(0, "com.example.scoped", HideScope.LAUNCHER or HideScope.NOTIFICATIONS))
+        assertTrue(scoped.shouldHideScope("com.example.scoped", 0, HideScope.NOTIFICATIONS, failIfCalled))
+        assertEquals(0, calls)
+
+        // Global hideNotifications=true: explicit hide skips module lookup, unknown package invokes it once
+        val notifOn = reduce(scoped, Op.Auto(null, null, hideNotifications = true))
+        assertTrue(notifOn.shouldHideScope("com.example.hidden", 0, HideScope.NOTIFICATIONS, failIfCalled))
+        assertEquals(0, calls)
+        assertTrue(notifOn.shouldHideScope("com.example.unknown", 0, HideScope.NOTIFICATIONS) { calls++; true })
+        assertEquals(1, calls)
+    }
+
     private object Identityless { const val SELF = "dev.hfw" }
 }
