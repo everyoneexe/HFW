@@ -543,7 +543,7 @@ object LauncherHook {
                             val ctx = Runtime.contextOf(param.thisObject)
                             val be = Runtime.be()
                             val profile = try { userHandleOf?.invoke(null, userId) as? UserHandle } catch (_: Throwable) { null }
-                            ModuleCache.isXposedModule(pkg, null, ctx, profile, be)
+                            ModuleCache.isCachedModuleOrWarmAsync(pkg, ctx, profile, be)
                         }) {
                         param.setResult(null)
                     }
@@ -558,6 +558,8 @@ object LauncherHook {
 
         // Foreground-service notifications cannot be dropped in enqueueNotificationInternal without risking
         // ForegroundServiceDidNotStartInTimeException on Android 12+; hide them at the listener dispatch layer instead.
+        // Track removal dispatch depth so listeners still receive removal callbacks for notifications posted before hiding.
+        val removeDispatchDepth = ThreadLocal.withInitial { 0 }
         fun shouldHideSbn(sbn: android.service.notification.StatusBarNotification, ctx: android.content.Context?): Boolean {
             val snap = StateStore.snapshot
             if (!snap.mayHideAnything()) return false
@@ -567,12 +569,13 @@ object LauncherHook {
             val profile = sbn.user
             val userId = userIdOf(profile, be)
             return snap.shouldHideScope(pkg, userId, HideScope.NOTIFICATIONS) {
-                ModuleCache.isXposedModule(pkg, null, ctx, profile, be)
+                ModuleCache.isCachedModuleOrWarmAsync(pkg, ctx, profile, be)
             }
         }
         val visCb = object : HookCallback() {
             override fun before(param: HookParam) {
                 try {
+                    if ((removeDispatchDepth.get() ?: 0) > 0) return
                     val sbn = param.args.firstOrNull { it is android.service.notification.StatusBarNotification }
                         as? android.service.notification.StatusBarNotification ?: return
                     if (shouldHideSbn(sbn, Runtime.contextOf(param.thisObject))) {
@@ -590,6 +593,18 @@ object LauncherHook {
         if (nl != null) {
             for (m in nl.declaredMethods.filter { it.name == "isVisibleToListener" }) {
                 h.optional("NotificationListeners.isVisibleToListener", nl, m.name, *m.parameterTypes, cb = visCb)
+            }
+            val removeCb = object : HookCallback() {
+                override fun before(param: HookParam) {
+                    removeDispatchDepth.set((removeDispatchDepth.get() ?: 0) + 1)
+                }
+                override fun after(param: HookParam) {
+                    val cur = removeDispatchDepth.get() ?: 0
+                    removeDispatchDepth.set(if (cur > 1) cur - 1 else 0)
+                }
+            }
+            for (m in nl.declaredMethods.filter { it.name == "notifyRemovedLocked" || it.name == "prepareNotifyRemovedLocked" }) {
+                h.optional("NotificationListeners.${m.name}", nl, m.name, *m.parameterTypes, cb = removeCb)
             }
             val postCb = object : HookCallback() {
                 override fun before(param: HookParam) {

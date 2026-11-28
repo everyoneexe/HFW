@@ -228,14 +228,20 @@ class AppCatalog(private val ctx: Context, private val client: HookClient) {
         ensureModuleCacheLoaded()
         synchronized(moduleCache) { moduleCache[cacheKey]?.let { return it } }
         var meta = ai.metaData
-        if (meta == null) meta = try { pm.getApplicationInfo(pkg, PackageManager.GET_META_DATA).metaData } catch (_: Throwable) { null }
+        var metaOk = meta != null
+        if (!metaOk) {
+            try {
+                meta = pm.getApplicationInfo(pkg, PackageManager.GET_META_DATA).metaData
+                metaOk = true
+            } catch (_: Throwable) {}
+        }
         var result = ModuleCache.hasXposedMetadata(meta)
         var definitive = result || isSystem(ai)
         if (!result && !isSystem(ai)) {
             val archive = ModuleCache.hasXposedArchiveMarkers(ai)
             if (archive != null) {
                 result = archive
-                definitive = true
+                definitive = archive || metaOk
             }
         }
         if (definitive) {
