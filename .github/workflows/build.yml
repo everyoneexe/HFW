@@ -76,6 +76,5 @@ jobs:
         uses: softprops/action-gh-release@c062e08bd532815e2082a85e87e3ef29c3e6d191 # v2.0.8
         with:
           files: dist/*.apk
-          body_path: RELEASE_NOTES_DRAFT.md
           name: HFW ${{ github.ref_name }}
-          generate_release_notes: false
+          generate_release_notes: true
