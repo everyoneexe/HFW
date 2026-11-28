@@ -30,14 +30,15 @@ HFW hooks `system_server` rather than modifying target APKs, so app data, signat
 
 Each app can use the global defaults from Settings or its own custom hide mask:
 
-- **Launcher & App Drawer** — removes the app from launchers and `LauncherApps` queries.
-- **Suggestions** — hides the app from launcher/system app suggestions.
-- **Shortcuts** — hides pinned and dynamic app shortcuts.
-- **Shortcut Configs** — hides shortcut creation activities from widget/shortcut pickers.
-- **Intent Chooser** — hides the app from "Open with" disambiguation dialogs.
-- **Share Targets** — hides the app from the system share sheet.
-- **Widgets** — hides the app's widgets from the widget picker.
-- **Notifications** — suppresses notifications (and foreground-service listener visibility) from the app.
+- [x] **Launcher & App Drawer** — removes the app from launchers and `LauncherApps` queries.
+- [x] **Suggestions** — hides the app from launcher/system app suggestions.
+- [x] **Shortcuts** — hides pinned and dynamic app shortcuts.
+- [x] **Shortcut Configs** — hides shortcut creation activities from widget/shortcut pickers.
+- [x] **Intent Chooser** — hides the app from "Open with" disambiguation dialogs.
+- [x] **Share Targets** — hides the app from the system share sheet.
+- [x] **Widgets** — hides the app's widgets from the widget picker.
+- [x] **Notifications** — suppresses notifications (and foreground-service listener visibility) from the app.
+- [ ] **More places?** — not sure what else needs to be hidden yet; open an issue if something is missing.
 
 ## Requirements
 
