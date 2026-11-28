@@ -41,6 +41,7 @@ import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -577,6 +578,7 @@ private fun HideScopeCard(vm: HfwViewModel, app: AppItem, onToggleHide: (Boolean
     val custom = vm.hasCustomHideScope(app)
     val on = mask != 0
     val count = Integer.bitCount(mask and H.ALL)
+    val total = Integer.bitCount(H.ALL)
     var expanded by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     val arrow by androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
@@ -592,6 +594,7 @@ private fun HideScopeCard(vm: HfwViewModel, app: AppItem, onToggleHide: (Boolean
         Place(H.INTENT_CHOOSER, Icons.AutoMirrored.Rounded.OpenInNew, R.string.scope_chooser, R.string.scope_chooser_sub),
         Place(H.SHARE_TARGETS, Icons.Rounded.Share, R.string.scope_share_targets, R.string.scope_share_targets_sub),
         Place(H.WIDGETS, Icons.Rounded.Widgets, R.string.scope_widgets, R.string.scope_widgets_sub),
+        Place(H.NOTIFICATIONS, Icons.Rounded.NotificationsOff, R.string.scope_notifications, R.string.scope_notifications_sub),
     )
     Surface(shape = RoundedCornerShape(28.dp), color = scheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
         Column {
@@ -614,8 +617,8 @@ private fun HideScopeCard(vm: HfwViewModel, app: AppItem, onToggleHide: (Boolean
                     Text(
                         text = when {
                             !on -> stringResource(R.string.action_hide_off)
-                            custom -> stringResource(R.string.scope_tap_custom, count, 7)
-                            else -> stringResource(R.string.scope_tap_customize, count, 7)
+                            custom -> stringResource(R.string.scope_tap_custom, count, total)
+                            else -> stringResource(R.string.scope_tap_customize, count, total)
                         },
                         style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, fontWeight = FontWeight.Light),
                         color = scheme.onSurfaceVariant,

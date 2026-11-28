@@ -1,5 +1,6 @@
 package dev.hfw.core
 
+import android.app.Notification
 import android.appwidget.AppWidgetProviderInfo
 import android.content.ComponentName
 import android.content.Intent
@@ -69,6 +70,7 @@ object LauncherHook {
         if (hideSupported) {
             h.group("shortcuts") { hookGetShortcuts(h, clazz); hookShortcutService(h, classLoader); hookAppWidgets(h, classLoader) }
             h.group("resolve") { hookResolveAndEnabledChecks(h, clazz); hookQueryIntentActivities(h, classLoader) }
+            h.group("notifications") { hookNotifications(h, classLoader) }
         }
         if (android.os.Build.VERSION.SDK_INT >= 34) {
             h.group("overlays") { hookIdmapDaemon(h, classLoader) }
@@ -509,6 +511,98 @@ object LauncherHook {
                     }
                 }
             })
+    }
+
+    private fun hookNotifications(h: Hooks, classLoader: ClassLoader) {
+        val nms = h.be.findClassIfExists("com.android.server.notification.NotificationManagerService", classLoader)
+        if (nms == null) {
+            HealthLog.hook("NotificationManagerService", HealthLog.MISSING)
+            return
+        }
+        val methods = nms.declaredMethods.filter { it.name == "enqueueNotificationInternal" }
+        if (methods.isEmpty()) {
+            HealthLog.hook("NotificationManager.enqueueNotificationInternal", HealthLog.MISSING)
+            return
+        }
+        val userHandleOf = try { UserHandle::class.java.getMethod("of", INT) } catch (_: Throwable) { null }
+        val cb = object : HookCallback() {
+            override fun before(param: HookParam) {
+                try {
+                    val snap = StateStore.snapshot
+                    if (!snap.mayHideAnything()) return
+                    val args = param.args
+                    val pkg = args.firstOrNull() as? String ?: return
+                    if (pkg == "android" || pkg == Identity.PACKAGE) return
+                    val notif = args.firstOrNull { it is Notification } as? Notification ?: return
+                    if ((notif.flags and Notification.FLAG_FOREGROUND_SERVICE) != 0) return
+                    val notifIdx = args.indexOfFirst { it === notif }
+                    val rawUserId = (args.getOrNull(notifIdx + 1) as? Int) ?: -1
+                    val callingUid = (args.getOrNull(2) as? Int) ?: -1
+                    val userId = if (rawUserId >= 0) rawUserId else if (callingUid >= 0) callingUid / 100_000 else 0
+                    val ctx = Runtime.contextOf(param.thisObject)
+                    val be = Runtime.be()
+                    val profile = try { userHandleOf?.invoke(null, userId) as? UserHandle } catch (_: Throwable) { null }
+                    val mod = ModuleCache.isXposedModule(pkg, null, ctx, profile, be)
+                    if (snap.shouldHideScope(pkg, userId, mod, HideScope.NOTIFICATIONS)) {
+                        param.setResult(null)
+                    }
+                } catch (t: Throwable) {
+                    HealthLog.event("NotificationManager hook failed", t)
+                }
+            }
+        }
+        for (m in methods) {
+            h.optional("NotificationManager.enqueueNotificationInternal", nms, m.name, *m.parameterTypes, cb = cb)
+        }
+
+        // Foreground-service notifications cannot be dropped in enqueueNotificationInternal without risking
+        // ForegroundServiceDidNotStartInTimeException on Android 12+; hide them at the listener dispatch layer instead.
+        val nl = h.be.findClassIfExists("com.android.server.notification.NotificationManagerService\$NotificationListeners", classLoader)
+        if (nl != null) {
+            fun shouldHideSbn(sbn: android.service.notification.StatusBarNotification, ctx: android.content.Context?): Boolean {
+                val snap = StateStore.snapshot
+                if (!snap.mayHideAnything()) return false
+                val pkg = sbn.packageName ?: return false
+                if (pkg == "android" || pkg == Identity.PACKAGE) return false
+                val be = Runtime.be()
+                val profile = sbn.user
+                val userId = userIdOf(profile, be)
+                val mod = ModuleCache.isXposedModule(pkg, null, ctx, profile, be)
+                return snap.shouldHideScope(pkg, userId, mod, HideScope.NOTIFICATIONS)
+            }
+            val visCb = object : HookCallback() {
+                override fun before(param: HookParam) {
+                    try {
+                        val sbn = param.args.firstOrNull { it is android.service.notification.StatusBarNotification }
+                            as? android.service.notification.StatusBarNotification ?: return
+                        if (shouldHideSbn(sbn, Runtime.contextOf(param.thisObject))) {
+                            param.setResult(false)
+                        }
+                    } catch (t: Throwable) {
+                        HealthLog.event("NotificationListeners.isVisibleToListener failed", t)
+                    }
+                }
+            }
+            for (m in nl.declaredMethods.filter { it.name == "isVisibleToListener" }) {
+                h.optional("NotificationListeners.isVisibleToListener", nl, m.name, *m.parameterTypes, cb = visCb)
+            }
+            val postCb = object : HookCallback() {
+                override fun before(param: HookParam) {
+                    try {
+                        val rec = param.args.firstOrNull() ?: return
+                        val sbn = Runtime.be().callMethod(rec, "getSbn") as? android.service.notification.StatusBarNotification ?: return
+                        if (shouldHideSbn(sbn, Runtime.contextOf(param.thisObject))) {
+                            param.setResult(null)
+                        }
+                    } catch (t: Throwable) {
+                        HealthLog.event("NotificationListeners.notifyPostedLocked failed", t)
+                    }
+                }
+            }
+            for (m in nl.declaredMethods.filter { it.name == "notifyPostedLocked" }) {
+                h.optional("NotificationListeners.notifyPostedLocked", nl, m.name, *m.parameterTypes, cb = postCb)
+            }
+        }
     }
 
     // ---- resolve / enabled / suggestions: hiding for every other entry point ---------------------------------------

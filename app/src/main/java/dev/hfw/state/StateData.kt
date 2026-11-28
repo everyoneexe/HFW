@@ -39,7 +39,8 @@ object HideScope {
     const val INTENT_CHOOSER = 1 shl 4
     const val SHARE_TARGETS = 1 shl 5
     const val WIDGETS = 1 shl 6
-    const val ALL = LAUNCHER or SUGGESTIONS or SHORTCUT_CONFIGS or SHORTCUTS or INTENT_CHOOSER or SHARE_TARGETS or WIDGETS
+    const val NOTIFICATIONS = 1 shl 7
+    const val ALL = LAUNCHER or SUGGESTIONS or SHORTCUT_CONFIGS or SHORTCUTS or INTENT_CHOOSER or SHARE_TARGETS or WIDGETS or NOTIFICATIONS
 }
 
 data class StateData(
@@ -51,6 +52,7 @@ data class StateData(
     val hideShortcutConfigs: Boolean = true,
     val hideShareTargets: Boolean = false,
     val hideWidgets: Boolean = true,
+    val hideNotifications: Boolean = false,
     val hide: Map<Int, Map<String, Boolean>> = emptyMap(),
     val hideScopes: Map<Int, Map<String, Int>> = emptyMap(),
     val apps: Map<String, AppRule> = emptyMap(),
@@ -72,6 +74,7 @@ data class StateData(
         if (hideIntentChooser) mask = mask or HideScope.INTENT_CHOOSER
         if (hideShareTargets) mask = mask or HideScope.SHARE_TARGETS
         if (hideWidgets) mask = mask or HideScope.WIDGETS
+        if (hideNotifications) mask = mask or HideScope.NOTIFICATIONS
         return mask
     }
 
@@ -89,6 +92,7 @@ data class StateData(
             HideScope.SHORTCUT_CONFIGS -> hideShortcutConfigs
             HideScope.SHARE_TARGETS -> hideShareTargets
             HideScope.WIDGETS -> hideWidgets
+            HideScope.NOTIFICATIONS -> hideNotifications
             else -> true
         }
         return globalAllowed && shouldHide(pkg, userId, isModule)

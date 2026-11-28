@@ -238,7 +238,7 @@ fun SettingsScreen(
 
             // ---- advanced (hide scope) ----
             if (Caps.hide) item(key = "advanced") {
-                Group(R.string.group_advanced, if (vm.advancedMode) 6 else 1) {
+                Group(R.string.group_advanced, if (vm.advancedMode) 7 else 1) {
                     SwitchRow(
                         icon = Icons.Rounded.Tune,
                         title = stringResource(R.string.set_advanced),
@@ -252,6 +252,7 @@ fun SettingsScreen(
                         SwitchRow(Icons.Rounded.Extension, stringResource(R.string.scope_shortcut_configs), stringResource(R.string.scope_global_sub), vm.hideShortcutConfigs, { vm.hideShortcutConfigs = it })
                         SwitchRow(Icons.Rounded.Extension, stringResource(R.string.scope_share_targets), stringResource(R.string.scope_global_sub), vm.hideShareTargets, { vm.hideShareTargets = it })
                         SwitchRow(Icons.Rounded.Extension, stringResource(R.string.scope_widgets), stringResource(R.string.scope_global_sub), vm.hideWidgets, { vm.hideWidgets = it })
+                        SwitchRow(Icons.Rounded.Extension, stringResource(R.string.scope_notifications), stringResource(R.string.scope_global_sub), vm.hideNotifications, { vm.hideNotifications = it })
                     }
                 }
             }

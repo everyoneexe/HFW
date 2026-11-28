@@ -174,6 +174,8 @@
     <string name="scope_share_targets_sub">The share sheet</string>
     <string name="scope_widgets">Widgets</string>
     <string name="scope_widgets_sub">The widget picker</string>
+    <string name="scope_notifications">Notifications</string>
+    <string name="scope_notifications_sub">Hide notifications from this app</string>
     <string name="scope_tap_customize">Default (%1$d/%2$d) · Tap to customize</string>
     <string name="scope_tap_custom">Custom (%1$d/%2$d) · Tap to edit</string>
     <string name="scope_reset">Use the default</string>

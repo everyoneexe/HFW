@@ -241,5 +241,25 @@ class StateTests {
         assertEquals(setOf(0 to "com.beemdevelopment.aegis"), diff.hide)
     }
 
+    @Test
+    fun hideNotificationsScopeAndAutoRoundTrip() {
+        val base = reduce(StateData(), Op.Hide(0, "com.example.chat", true))
+        assertFalse(base.shouldHideScope("com.example.chat", 0, false, HideScope.NOTIFICATIONS))
+
+        val enabled = reduce(base, Op.Auto(null, null, hideNotifications = true))
+        assertTrue(enabled.hideNotifications)
+        assertTrue(enabled.shouldHideScope("com.example.chat", 0, false, HideScope.NOTIFICATIONS))
+
+        val reqJson = OpCodec.encode(Request("r1", listOf(Op.Auto(null, null, hideNotifications = true))))
+        val decodedReq = OpCodec.decode(reqJson)
+        assertNotNull(decodedReq)
+        assertEquals(Op.Auto(null, null, hideNotifications = true), decodedReq!!.ops.single())
+
+        val decodedState = StateCodec.decodeText(StateCodec.encodeText(enabled), strict = true)
+        assertNotNull(decodedState)
+        assertTrue(decodedState!!.hideNotifications)
+        assertEquals(Canonical.hash(enabled), Canonical.hash(decodedState))
+    }
+
     private object Identityless { const val SELF = "dev.hfw" }
 }
