@@ -18,13 +18,26 @@ HFW hooks `system_server` rather than modifying target APKs, so app data, signat
 | Feature | Android | Scope |
 |---|---|---|
 | Rename apps | 8+ (8-10 untested) | Global and per-profile |
-| Hide apps and Xposed modules | 11+ | Per-profile (launcher, intent chooser, shortcuts, shortcut configs, share targets, widgets) |
+| Hide apps and Xposed modules | 11+ | Per-profile (8 configurable scopes) |
 | Change app icons | 14+ (requires SELinux module) | Global and per-profile (including system apps) |
 | Backup and restore | 8+ | Full `.zip` export and import of rules, labels, and icons |
 
 - Supports Main, Work, Clone, and Private Space profiles.
 - Detects Xposed modules automatically across classic and modern APIs, with per-app and bulk controls.
 - No `INTERNET` permission; all state stays local on-device.
+
+### Where Apps Can Be Hidden (Hide Scopes)
+
+Each app can use the global defaults from Settings or its own custom hide mask:
+
+- **Launcher & App Drawer** — removes the app from launchers and `LauncherApps` queries.
+- **Suggestions** — hides the app from launcher/system app suggestions.
+- **Shortcuts** — hides pinned and dynamic app shortcuts.
+- **Shortcut Configs** — hides shortcut creation activities from widget/shortcut pickers.
+- **Intent Chooser** — hides the app from "Open with" disambiguation dialogs.
+- **Share Targets** — hides the app from the system share sheet.
+- **Widgets** — hides the app's widgets from the widget picker.
+- **Notifications** — suppresses notifications (and foreground-service listener visibility) from the app.
 
 ## Requirements
 
