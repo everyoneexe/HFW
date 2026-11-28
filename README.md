@@ -57,4 +57,4 @@ If needed, delete `/data/system/hfw/`. Uninstalling the SELinux module does not 
 Provided for personal device customization and educational purposes; use at your own risk. Modifying system apps or framework behavior is the user's responsibility.
 
 ## License
-MIT, see `LICENSE`.
+GPL-3.0, see `LICENSE`.
