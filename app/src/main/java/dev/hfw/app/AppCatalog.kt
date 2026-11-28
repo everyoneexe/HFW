@@ -13,6 +13,7 @@ import android.os.Process
 import android.os.UserHandle
 import android.os.UserManager
 import dev.hfw.core.ModuleCache
+import dev.hfw.core.ModuleCacheFile
 import dev.hfw.data.AppProfile
 import java.io.File
 
@@ -38,7 +39,39 @@ class AppCatalog(private val ctx: Context, private val client: HookClient) {
 
     @Volatile
     private var infos: Map<String, LauncherActivityInfo> = emptyMap()
+    private val moduleSp by lazy { ctx.getSharedPreferences("module_catalog_cache", Context.MODE_PRIVATE) }
     private val moduleCache = HashMap<String, Boolean>()
+    @Volatile
+    private var moduleCacheLoaded = false
+    private val pendingCacheWrites = HashMap<String, Boolean>()
+
+    private fun ensureModuleCacheLoaded() {
+        if (moduleCacheLoaded) return
+        synchronized(moduleCache) {
+            if (moduleCacheLoaded) return
+            val ver = moduleSp.getInt("rules_version", -1)
+            if (ver == ModuleCacheFile.DETECTION_RULES_VERSION) {
+                for ((k, v) in moduleSp.all) {
+                    if (k != "rules_version" && v is Boolean) moduleCache[k] = v
+                }
+            } else {
+                moduleSp.edit().clear().putInt("rules_version", ModuleCacheFile.DETECTION_RULES_VERSION).apply()
+            }
+            moduleCacheLoaded = true
+        }
+    }
+
+    private fun flushModuleCache() {
+        val batch: Map<String, Boolean>
+        synchronized(moduleCache) {
+            if (pendingCacheWrites.isEmpty()) return
+            batch = HashMap(pendingCacheWrites)
+            pendingCacheWrites.clear()
+        }
+        val ed = moduleSp.edit().putInt("rules_version", ModuleCacheFile.DETECTION_RULES_VERSION)
+        for ((k, v) in batch) ed.putBoolean(k, v)
+        ed.apply()
+    }
 
     private val ownUser get() = Process.myUid() / 100_000
 
@@ -73,8 +106,18 @@ class AppCatalog(private val ctx: Context, private val client: HookClient) {
         }
         if (profiles.size <= 1) activities.addAll(client.allUsers().filter { userIdOf(it.user) != ownUser })
 
+        // Single Binder IPC for all own-user packages (versionName, timestamps, and metaData included).
+        val installedPkgs: List<android.content.pm.PackageInfo>? = try {
+            pm.getInstalledPackages(PackageManager.GET_META_DATA).takeIf { it.isNotEmpty() }
+        } catch (_: Throwable) {
+            null
+        }
+        val pkgInfoByName = HashMap<String, android.content.pm.PackageInfo>(installedPkgs?.size ?: 0)
+        installedPkgs?.forEach { pi -> pi.packageName?.let { pkgInfoByName[it] = pi } }
+
         val out = LinkedHashMap<String, Entry>()
         val infoMap = HashMap<String, LauncherActivityInfo>()
+        val profileByUid = HashMap<Int, AppProfile>()
         for (a in activities) {
             val ai = a.applicationInfo ?: continue
             val pkg = ai.packageName ?: continue
@@ -82,44 +125,42 @@ class AppCatalog(private val ctx: Context, private val client: HookClient) {
             val uid = userIdOf(a.user)
             val key = "$uid:$pkg"
             if (out.containsKey(key)) continue
-            // getPackageInfo only sees the manager's own profile; for another profile it would return the personal copy
-            // (or nothing). There, read the version from the APK itself and take its file time as the update time.
+            // getPackageInfo only sees the manager's own profile; for another profile reuse the own-profile
+            // PackageInfo when it points to the exact same APK, otherwise fall back to archiveInfo.
             val own = uid == ownUser
-            val pi = if (own) try { pm.getPackageInfo(pkg, 0) } catch (_: Throwable) { null } else null
-            val arch = if (own) null else archiveInfo(pm, ai)
+            val ownPi = pkgInfoByName[pkg]
+            val pi = if (own) ownPi else ownPi?.takeIf { it.applicationInfo?.sourceDir == ai.sourceDir }
+            val arch = if (pi != null) null else archiveInfo(pm, ai)
             val installed = pi?.firstInstallTime ?: a.firstInstallTime
+            val profile = profileByUid.getOrPut(uid) { profileOf(uid, a.user, la) }
             out[key] = Entry(
                 userId = uid, pkg = pkg,
                 label = try { a.label?.toString() ?: pkg } catch (_: Throwable) { pkg },
                 sizeMb = sizeMb(ai), installedAt = installed, updatedAt = pi?.lastUpdateTime ?: maxOf(installed, arch?.second ?: 0L),
                 version = pi?.versionName ?: arch?.first ?: "—",
-                profile = profileOf(uid, a.user, la),
-                isSystem = isSystem(ai), isModule = isModule(ai, pm), hasLauncher = true,
+                profile = profile,
+                isSystem = isSystem(ai), isModule = isModule(pi?.applicationInfo ?: ai, pm), hasLauncher = true,
             )
             infoMap[key] = a
         }
         infos = infoMap
 
         // headless Xposed modules have no launcher activity but still need to be listed (and auto-hidden)
-        val installed: List<ApplicationInfo>? = try {
-            pm.getInstalledApplications(PackageManager.GET_META_DATA).takeIf { it.isNotEmpty() }
-        } catch (_: Throwable) {
-            null
-        }
-        for (ai in installed.orEmpty()) {
-            val pkg = ai.packageName ?: continue
+        for (pi in installedPkgs.orEmpty()) {
+            val ai = pi.applicationInfo ?: continue
+            val pkg = pi.packageName ?: continue
             val key = "$ownUser:$pkg"
             if (pkg == "android" || out.containsKey(key) || !isModule(ai, pm)) continue
-            val pi = try { pm.getPackageInfo(pkg, 0) } catch (_: Throwable) { null }
             out[key] = Entry(
                 userId = ownUser, pkg = pkg,
                 label = try { pm.getApplicationLabel(ai).toString() } catch (_: Throwable) { pkg },
-                sizeMb = sizeMb(ai), installedAt = pi?.firstInstallTime ?: 0L, updatedAt = pi?.lastUpdateTime ?: 0L,
-                version = pi?.versionName ?: "—", profile = AppProfile.MAIN,
+                sizeMb = sizeMb(ai), installedAt = pi.firstInstallTime, updatedAt = pi.lastUpdateTime,
+                version = pi.versionName ?: "—", profile = AppProfile.MAIN,
                 isSystem = isSystem(ai), isModule = true, hasLauncher = false,
             )
         }
-        return Result(out.values.toList(), installed != null, profilesComplete)
+        flushModuleCache()
+        return Result(out.values.toList(), installedPkgs != null, profilesComplete)
     }
 
     /** Whether [pkg] is installed for the manager's own user (used to decide if a stale rule may be forgotten). */
@@ -184,14 +225,32 @@ class AppCatalog(private val ctx: Context, private val client: HookClient) {
     private fun isModule(ai: ApplicationInfo, pm: PackageManager): Boolean {
         val pkg = ai.packageName ?: return false
         val cacheKey = "$pkg|${ai.sourceDir}"
+        ensureModuleCacheLoaded()
         synchronized(moduleCache) { moduleCache[cacheKey]?.let { return it } }
         var meta = ai.metaData
-        if (meta == null) meta = try { pm.getApplicationInfo(pkg, PackageManager.GET_META_DATA).metaData } catch (_: Throwable) { null }
-        var result = ModuleCache.hasXposedMetadata(meta)
-        if (!result) {
-            result = ModuleCache.hasXposedArchiveMarkers(ai) == true
+        var metaOk = meta != null
+        if (!metaOk) {
+            try {
+                meta = pm.getApplicationInfo(pkg, PackageManager.GET_META_DATA).metaData
+                metaOk = true
+            } catch (_: Throwable) {}
         }
-        synchronized(moduleCache) { if (moduleCache.size > 2048) moduleCache.clear(); moduleCache[cacheKey] = result }
+        var result = ModuleCache.hasXposedMetadata(meta)
+        var definitive = result || isSystem(ai)
+        if (!result && !isSystem(ai)) {
+            val archive = ModuleCache.hasXposedArchiveMarkers(ai)
+            if (archive != null) {
+                result = archive
+                definitive = archive || metaOk
+            }
+        }
+        if (definitive) {
+            synchronized(moduleCache) {
+                if (moduleCache.size > 2048) moduleCache.clear()
+                moduleCache[cacheKey] = result
+                pendingCacheWrites[cacheKey] = result
+            }
+        }
         return result
     }
 }

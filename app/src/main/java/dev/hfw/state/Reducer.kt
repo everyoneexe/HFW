@@ -31,6 +31,7 @@ object Reducer {
         var hideShortcutConfigs = base.hideShortcutConfigs
         var hideShareTargets = base.hideShareTargets
         var hideWidgets = base.hideWidgets
+        var hideNotifications = base.hideNotifications
         val refresh = LinkedHashSet<String>()
         var force = false
 
@@ -89,6 +90,7 @@ object Reducer {
                 op.hideShortcutConfigs?.let { hideShortcutConfigs = it }
                 op.hideShareTargets?.let { hideShareTargets = it }
                 op.hideWidgets?.let { hideWidgets = it }
+                op.hideNotifications?.let { hideNotifications = it }
             }
             is Op.Forget -> {
                 for (m in hide.values) m.remove(op.pkg)
@@ -122,6 +124,7 @@ object Reducer {
                 hideShortcutConfigs = op.data.hideShortcutConfigs
                 hideShareTargets = op.data.hideShareTargets
                 hideWidgets = op.data.hideWidgets
+                hideNotifications = op.data.hideNotifications
                 val next = LinkedHashMap<String, AppRule>()
                 for ((pkg, want) in op.data.apps) {
                     if (!want.isActive || Pkg.isProtectedForLook(pkg)) continue
@@ -188,6 +191,7 @@ object Reducer {
             hideShortcutConfigs,
             hideShareTargets,
             hideWidgets,
+            hideNotifications,
             hide.mapValues { it.value.toMap() },
             hideScopes.mapValues { it.value.toMap() },
             apps,

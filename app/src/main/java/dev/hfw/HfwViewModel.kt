@@ -31,6 +31,8 @@ import dev.hfw.state.Overlay
 import dev.hfw.state.Pkg
 import dev.hfw.state.StateData
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -139,6 +141,9 @@ class HfwViewModel(application: Application) : AndroidViewModel(application) {
     var hideWidgets: Boolean
         get() = store.state.hideWidgets.also { changes }
         set(v) { apply(listOf(Op.Auto(null, null, hideWidgets = v))) }
+    var hideNotifications: Boolean
+        get() = store.state.hideNotifications.also { changes }
+        set(v) { apply(listOf(Op.Auto(null, null, hideNotifications = v))) }
 
     /** Reading this inside a getter makes Compose recompose when the store changes. */
     private var changes by mutableStateOf(0L)
@@ -182,11 +187,14 @@ class HfwViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             refreshing = true
             withContext(Dispatchers.IO) {
-                syncer.sync()
-                val r = sv.catalog.load()
-                entries = r.entries
-                profilesComplete = r.profilesComplete
-                if (r.inventoryOk) forgetStale(r)
+                coroutineScope {
+                    val syncJob = async { syncer.sync() }
+                    val r = sv.catalog.load()
+                    syncJob.await()
+                    entries = r.entries
+                    profilesComplete = r.profilesComplete
+                    if (r.inventoryOk) forgetStale(r)
+                }
             }
             rebuild()
             loaded = true

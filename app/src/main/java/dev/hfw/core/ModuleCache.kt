@@ -34,6 +34,8 @@ object ModuleCache {
 
     // Lock-free reads on Binder threads; bounded to MAX_CACHE_ENTRIES.
     private val apkModuleCache = ConcurrentHashMap<String, Boolean>(256)
+    private val pkgVerdictCache = ConcurrentHashMap<String, Boolean>(256)
+    private val asyncWarmups = ConcurrentHashMap.newKeySet<String>()
 
     // Verdicts are persisted to disk so each boot does not re-open every APK on Binder threads.
     // Writes are debounced so the burst of first-boot detections lands in a single file write.
@@ -116,6 +118,8 @@ object ModuleCache {
                 val loaded = ModuleCacheFile.decode(file.readText(), ModuleCacheFile.DETECTION_RULES_VERSION, MAX_CACHE_ENTRIES)
                 for ((key, isModule) in loaded) {
                     apkModuleCache.putIfAbsent(key, isModule)
+                    val sep = key.indexOf('|')
+                    if (sep > 0) pkgVerdictCache.putIfAbsent(key.substring(0, sep), isModule)
                 }
                 backend?.log("[$TAG] Loaded ${loaded.size} persisted module verdicts")
             } catch (t: Throwable) {
@@ -195,11 +199,45 @@ object ModuleCache {
             if (apkModuleCache.size >= MAX_CACHE_ENTRIES) apkModuleCache.clear()
         }
         apkModuleCache[cacheKey] = detected
+        pkgVerdictCache[packageName] = detected
         schedulePersist()
         if (detected) {
             backend?.log("[$TAG] Detected Xposed module: $packageName ($sourceDir)")
         }
         return detected
+    }
+
+    /**
+     * Lock-free, non-blocking module lookup for latency-sensitive paths holding system locks.
+     * Returns any cached verdict immediately; on a cache miss, schedules asynchronous detection
+     * and returns `false` (fail-safe fallback to original behavior).
+     */
+    internal fun isCachedModuleOrWarmAsync(
+        packageName: String,
+        context: Context?,
+        userHandle: UserHandle?,
+        backend: HookBackend,
+    ): Boolean {
+        ensureInitialized(backend)
+        if (packageName == "android") return false
+        if (persistedLoaded) {
+            pkgVerdictCache[packageName]?.let { return it }
+        }
+        if (!acceptingReload && asyncWarmups.add(packageName)) {
+            try {
+                persistExecutor.execute {
+                    try {
+                        isXposedModule(packageName, null, context, userHandle, backend)
+                    } catch (_: Throwable) {
+                    } finally {
+                        asyncWarmups.remove(packageName)
+                    }
+                }
+            } catch (_: Throwable) {
+                asyncWarmups.remove(packageName)
+            }
+        }
+        return false
     }
 
     private fun resolveAppInfoSafely(

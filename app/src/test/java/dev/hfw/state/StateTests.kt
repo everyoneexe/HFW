@@ -241,5 +241,48 @@ class StateTests {
         assertEquals(setOf(0 to "com.beemdevelopment.aegis"), diff.hide)
     }
 
+    @Test
+    fun hideNotificationsScopeAndAutoRoundTrip() {
+        val base = reduce(StateData(), Op.Hide(0, "com.example.chat", true))
+        assertFalse(base.shouldHideScope("com.example.chat", 0, false, HideScope.NOTIFICATIONS))
+
+        val enabled = reduce(base, Op.Auto(null, null, hideNotifications = true))
+        assertTrue(enabled.hideNotifications)
+        assertTrue(enabled.shouldHideScope("com.example.chat", 0, false, HideScope.NOTIFICATIONS))
+
+        val reqJson = OpCodec.encode(Request("r1", listOf(Op.Auto(null, null, hideNotifications = true))))
+        val decodedReq = OpCodec.decode(reqJson)
+        assertNotNull(decodedReq)
+        assertEquals(Op.Auto(null, null, hideNotifications = true), decodedReq!!.ops.single())
+
+        val decodedState = StateCodec.decodeText(StateCodec.encodeText(enabled), strict = true)
+        assertNotNull(decodedState)
+        assertTrue(decodedState!!.hideNotifications)
+        assertEquals(Canonical.hash(enabled), Canonical.hash(decodedState))
+    }
+
+    @Test
+    fun lazyShouldHideScopeSkipsModuleCheckUnlessNeeded() {
+        var calls = 0
+        val failIfCalled: () -> Boolean = { calls++; error("isModule should not be called") }
+
+        // Global hideNotifications=false: skips module lookup for unrelated packages
+        val defaultState = reduce(StateData(), Op.Hide(0, "com.example.hidden", true))
+        assertFalse(defaultState.shouldHideScope("com.example.other", 0, HideScope.NOTIFICATIONS, failIfCalled))
+        assertEquals(0, calls)
+
+        // Explicit HideScope skips module lookup
+        val scoped = reduce(defaultState, Op.HideScope(0, "com.example.scoped", HideScope.LAUNCHER or HideScope.NOTIFICATIONS))
+        assertTrue(scoped.shouldHideScope("com.example.scoped", 0, HideScope.NOTIFICATIONS, failIfCalled))
+        assertEquals(0, calls)
+
+        // Global hideNotifications=true: explicit hide skips module lookup, unknown package invokes it once
+        val notifOn = reduce(scoped, Op.Auto(null, null, hideNotifications = true))
+        assertTrue(notifOn.shouldHideScope("com.example.hidden", 0, HideScope.NOTIFICATIONS, failIfCalled))
+        assertEquals(0, calls)
+        assertTrue(notifOn.shouldHideScope("com.example.unknown", 0, HideScope.NOTIFICATIONS) { calls++; true })
+        assertEquals(1, calls)
+    }
+
     private object Identityless { const val SELF = "dev.hfw" }
 }
